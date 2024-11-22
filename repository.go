@@ -12,12 +12,15 @@ import (
 //		data.IRepository[SampleModel]
 //	}
 type IRepository[T IBaseModel] interface {
-	First(model *T, conds interface{}) error // Select query based on id
-	Create(model *T) (*T, error)             // Insert model
-	BatchCreate(models []*T) (int64, error)  // Batch Insert based on slice of model
-	Update(model *T) error                   // Update a model
-	Delete(model *T) (int64, error)          // Delete a record
-	GetDB() *gorm.DB                         // Get Database Instance
+	First(model *T, conds ...interface{}) error        // Select query with limit 1
+	FirstOrFail(model *T, conds ...interface{}) error  // Select query with limit 1 and return error if finds nothing
+	Find(model *[]T, conds ...interface{}) error       // Select query
+	FindOrFail(model *[]T, conds ...interface{}) error // Select query and return error if finds nothing
+	Create(model *T) (*T, error)                       // Insert model
+	BatchCreate(models []*T) (int64, error)            // Batch Insert based on slice of model
+	Update(model *T) error                             // Update a model
+	Delete(model *T) (int64, error)                    // Delete a record
+	GetDB() *gorm.DB                                   // Get Database Instance
 }
 
 // Repository a generic struct which should be embed by other repositories
@@ -28,21 +31,19 @@ type IRepository[T IBaseModel] interface {
 //	type SampleRepository struct {
 //		Repository[SampleModel]
 //	}
-//
-// sample usage as declare as repository:
-//
-// sampleRepository := InitRepository[SampleModel](db)
-//
-
 type Repository[T IBaseModel] struct {
 	IRepository[T]
 
-	database *gorm.DB
+	Database *gorm.DB
 }
 
+// InitRepository use this in cases you don't want to embed Repository in your Repository structs
+// sample usage as declare as repository:
+//
+// sampleRepository := InitRepository[SampleModel](db)
 func InitRepository[T IBaseModel](database *gorm.DB) IRepository[T] {
 	return &Repository[T]{
-		database: database,
+		Database: database,
 	}
 }
 
@@ -51,9 +52,20 @@ type IBaseModel interface {
 	TableName() string
 }
 
-// First finds the first record ordered by primary key, matching given conditions conds
-func (r *Repository[T]) First(model *T, conds interface{}) error {
-	res := r.database.First(&model, conds)
+// First finds the first record ordered by primary key, matching given conditions
+func (r *Repository[T]) First(model *T, conds ...interface{}) error {
+	res := r.Database.First(&model, conds...)
+
+	if res.Error != nil && res.Error != gorm.ErrRecordNotFound {
+		return res.Error
+	}
+
+	return nil
+}
+
+// FirstOrFail finds the first record ordered by primary key, matching given conditions
+func (r *Repository[T]) FirstOrFail(model *T, conds ...interface{}) error {
+	res := r.Database.First(&model, conds...)
 
 	if res.Error != nil {
 		return res.Error
@@ -62,8 +74,20 @@ func (r *Repository[T]) First(model *T, conds interface{}) error {
 	return nil
 }
 
-func (r *Repository[T]) Find(models *[]T, conds interface{}) error {
-	res := r.database.Find(&models, conds)
+// Find finds the all the records ordered by primary key, matching given conditions
+func (r *Repository[T]) Find(models *[]T, conds ...interface{}) error {
+	res := r.Database.Find(&models, conds...)
+
+	if res.Error != nil && res.Error != gorm.ErrRecordNotFound {
+		return res.Error
+	}
+
+	return nil
+}
+
+// FindOrFail finds the all the records ordered by primary key, matching given conditions
+func (r *Repository[T]) FindOrFail(models *[]T, conds ...interface{}) error {
+	res := r.Database.Find(&models, conds...)
 
 	if res.Error != nil {
 		return res.Error
@@ -74,7 +98,7 @@ func (r *Repository[T]) Find(models *[]T, conds interface{}) error {
 
 // Create inserts value, returning the inserted data's primary key in value's id
 func (r *Repository[T]) Create(model *T) (*T, error) {
-	res := r.database.Create(model)
+	res := r.Database.Create(model)
 
 	if res.Error != nil {
 		return nil, res.Error
@@ -83,9 +107,9 @@ func (r *Repository[T]) Create(model *T) (*T, error) {
 	return model, nil
 }
 
-// Create inserts value, returning the inserted data's primary key in value's id
+// BulkCreate Create inserts value, returning the inserted data's primary key in value's id
 func (r *Repository[T]) BulkCreate(models []*T) (int64, error) {
-	res := r.database.Create(models)
+	res := r.Database.Create(models)
 
 	if res.Error != nil {
 		return res.RowsAffected, res.Error
@@ -94,9 +118,9 @@ func (r *Repository[T]) BulkCreate(models []*T) (int64, error) {
 	return res.RowsAffected, nil
 }
 
-// Save updates value in database. If value doesn't contain a matching primary key, value is inserted.
+// Update Save updates value in database. If value doesn't contain a matching primary key, value is inserted.
 func (r *Repository[T]) Update(model *T) error {
-	res := r.database.Save(model)
+	res := r.Database.Save(model)
 
 	if res.Error != nil {
 		return res.Error
@@ -110,7 +134,7 @@ func (r *Repository[T]) Update(model *T) error {
 // If value includes a deleted_at field, then Delete performs a soft delete
 // instead by setting deleted_at with the current time if null.
 func (r *Repository[T]) Delete(model *T) (int64, error) {
-	res := r.database.Delete(model)
+	res := r.Database.Delete(model)
 
 	if res.Error != nil {
 		return res.RowsAffected, res.Error
@@ -121,5 +145,5 @@ func (r *Repository[T]) Delete(model *T) (int64, error) {
 
 // GetDB return *gorm.DB for other methods which this repository doesn't support it
 func (r *Repository[T]) GetDB() *gorm.DB {
-	return r.database
+	return r.Database
 }
